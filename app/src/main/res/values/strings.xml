@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">ZS5 Rybnik</string>
+    <string name="nav_today">Dzisiaj</string>
+    <string name="nav_plans">Plany</string>
+    <string name="nav_locator">Nauczyciele</string>
+    <string name="nav_calendar">Wolne</string>
+    <string name="nav_settings">Ustawienia</string>
+    <string name="channel_changes_name">Zmiany w planie lekcji</string>
+    <string name="channel_changes_desc">Powiadomienia o wykrytych zmianach w harmonogramie lekcji ZS5 Rybnik</string>
+    <string name="channel_lesson_end_name">Koniec lekcji</string>
+    <string name="channel_lesson_end_desc">Przypomnienia o zbliżającym się końcu bieżącej lekcji</string>
+</resources>
