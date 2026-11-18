@@ -26,7 +26,11 @@ data class UserPreferences(
     val notifyScheduleChanges: Boolean = true,
     val notifyLessonEnd: Boolean = false,
     val lessonEndMinutesBefore: Int = 3,
-    val lastSyncEpochMs: Long = 0L
+    val lastSyncEpochMs: Long = 0L,
+    val autoCheckUpdatesOnStartup: Boolean = true,
+    val lastSyncedGithubVersion: String? = null,
+    val lastSyncedGithubUrl: String? = null,
+    val lastGithubCheckEpochMs: Long = 0L
 ) {
     val pinnedPlanEntry: PlanEntry?
         get() = if (pinnedPlanHref != null && pinnedPlanName != null && pinnedPlanCategory != null) {
@@ -45,6 +49,10 @@ class UserPreferencesRepository(private val context: Context) {
         val NOTIFY_LESSON_END = booleanPreferencesKey("notify_lesson_end")
         val LESSON_END_MINUTES = intPreferencesKey("lesson_end_minutes_before")
         val LAST_SYNC = longPreferencesKey("last_sync_epoch_ms")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates_startup")
+        val LAST_GITHUB_VERSION = stringPreferencesKey("last_synced_github_version")
+        val LAST_GITHUB_URL = stringPreferencesKey("last_synced_github_url")
+        val LAST_GITHUB_CHECK = longPreferencesKey("last_github_check_epoch_ms")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -59,7 +67,11 @@ class UserPreferencesRepository(private val context: Context) {
             notifyScheduleChanges = prefs[Keys.NOTIFY_CHANGES] ?: true,
             notifyLessonEnd = prefs[Keys.NOTIFY_LESSON_END] ?: false,
             lessonEndMinutesBefore = prefs[Keys.LESSON_END_MINUTES] ?: 3,
-            lastSyncEpochMs = prefs[Keys.LAST_SYNC] ?: 0L
+            lastSyncEpochMs = prefs[Keys.LAST_SYNC] ?: 0L,
+            autoCheckUpdatesOnStartup = prefs[Keys.AUTO_CHECK_UPDATES] ?: true,
+            lastSyncedGithubVersion = prefs[Keys.LAST_GITHUB_VERSION],
+            lastSyncedGithubUrl = prefs[Keys.LAST_GITHUB_URL],
+            lastGithubCheckEpochMs = prefs[Keys.LAST_GITHUB_CHECK] ?: 0L
         )
     }
 
@@ -91,5 +103,17 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun setLastSyncEpochMs(timestamp: Long) {
         context.dataStore.edit { it[Keys.LAST_SYNC] = timestamp }
+    }
+
+    suspend fun setAutoCheckUpdatesOnStartup(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.AUTO_CHECK_UPDATES] = enabled }
+    }
+
+    suspend fun saveGithubSyncInfo(version: String?, url: String?, checkedAtMs: Long) {
+        context.dataStore.edit {
+            if (version != null) it[Keys.LAST_GITHUB_VERSION] = version
+            if (url != null) it[Keys.LAST_GITHUB_URL] = url
+            it[Keys.LAST_GITHUB_CHECK] = checkedAtMs
+        }
     }
 }

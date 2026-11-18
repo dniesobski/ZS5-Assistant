@@ -1,5 +1,7 @@
 package com.example
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,8 +23,10 @@ import androidx.compose.material.icons.rounded.PersonSearch
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.ViewWeek
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -33,12 +37,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -92,6 +98,35 @@ fun Zs5AppShell(viewModel: MainViewModel) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: AppDestination.TODAY.route
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
+    uiState.startupUpdatePrompt?.let { available ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissStartupUpdatePrompt() },
+            title = { Text("Dostępna aktualizacja v${available.release.normalizedVersion}") },
+            text = {
+                val notes = available.release.releaseNotes.takeIf { it.isNotBlank() }
+                    ?.let { "\n\n${it.take(300)}" } ?: ""
+                Text(
+                    "Na GitHubie opublikowano nową wersję aplikacji ZS5 asystent ucznia (obecna: v${available.localVersion}).$notes"
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val url = available.release.apkDownloadUrl ?: available.release.htmlUrl
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    viewModel.dismissStartupUpdatePrompt()
+                }) {
+                    Text("Pobierz z GitHub")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissStartupUpdatePrompt() }) {
+                    Text("Później")
+                }
+            }
+        )
+    }
 
     LaunchedEffect(uiState.snackbarMessage) {
         val msg = uiState.snackbarMessage
@@ -255,6 +290,8 @@ fun Zs5AppShell(viewModel: MainViewModel) {
                             onSendTestNotification = { viewModel.sendTestNotification() },
                             onPinEntry = { viewModel.pinPlan(it) },
                             onRefreshIndex = { viewModel.refreshIndexAndPinnedPlan() },
+                            onSetAutoCheckUpdates = { viewModel.setAutoCheckUpdatesOnStartup(it) },
+                            onCheckUpdatesNow = { viewModel.checkForAppUpdates(isAutomatic = false) },
                             onClearCache = { viewModel.clearPlanCache() },
                             onClearChangesLog = { viewModel.clearChangesLog() }
                         )

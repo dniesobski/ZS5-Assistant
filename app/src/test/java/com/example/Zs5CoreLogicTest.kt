@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.data.network.GitHubReleaseChecker
 import com.example.data.network.OptivumHtmlParser
 import com.example.data.repository.PolishCalendarCalculator
 import com.example.data.repository.TimetableRepository
@@ -14,8 +15,40 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class Zs5CoreLogicTest {
+
+    @Test
+    fun `github release semver comparison and json parsing work accurately`() {
+        assertEquals("1.2.3", GitHubReleaseChecker.normalizeVersion("v1.2.3-beta"))
+        assertTrue(GitHubReleaseChecker.compareVersions("1.0.0", "1.0.1") > 0)
+        assertTrue(GitHubReleaseChecker.compareVersions("1.0.0", "v1.2.0") > 0)
+        assertEquals(0, GitHubReleaseChecker.compareVersions("1.2.0", "v1.2.0"))
+        assertTrue(GitHubReleaseChecker.compareVersions("1.2.0", "1.1.9") < 0)
+
+        val json = """
+            {
+              "tag_name": "v1.3.0",
+              "name": "Wydanie 1.3.0",
+              "body": "Poprawki planu lekcji",
+              "html_url": "https://github.com/dniesobski/ZS5-Assistant/releases/tag/v1.3.0",
+              "assets": [
+                {
+                  "name": "zs5-asystent-v1.3.0.apk",
+                  "browser_download_url": "https://github.com/dniesobski/ZS5-Assistant/releases/download/v1.3.0/zs5-asystent-v1.3.0.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsed = GitHubReleaseChecker.parseReleaseJson(json)
+        assertEquals("1.3.0", parsed.normalizedVersion)
+        assertEquals("https://github.com/dniesobski/ZS5-Assistant/releases/download/v1.3.0/zs5-asystent-v1.3.0.apk", parsed.apkDownloadUrl)
+    }
 
     @Test
     fun `break countdown formats minutes and seconds accurately`() {

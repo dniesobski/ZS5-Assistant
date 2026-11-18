@@ -142,7 +142,7 @@ object NotificationHelper {
         ensureChannels(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_LESSON_END)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("ZS5 Rybnik • Test powiadomień")
+            .setContentTitle("ZS5 asystent ucznia • Test powiadomień")
             .setContentText("Powiadomienia działają poprawnie (alert końca lekcji: $minutesBefore min przed dzwonkiem).")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)

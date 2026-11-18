@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "ZS5 Rybnik"
+rootProject.name = "ZS5 asystent ucznia"
 
 include(":app")

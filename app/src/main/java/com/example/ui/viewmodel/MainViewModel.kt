@@ -3,11 +3,14 @@ package com.example.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
 import com.example.data.local.AppDatabase
 import com.example.data.local.ScheduleChangeEntity
 import com.example.data.local.UserPreferences
 import com.example.data.local.UserPreferencesRepository
+import com.example.data.network.GitHubReleaseChecker
 import com.example.data.network.TimetableRemoteDataSource
+import com.example.data.network.UpdateCheckResult
 import com.example.data.repository.PolishCalendarCalculator
 import com.example.data.repository.TimetableRepository
 import com.example.model.HolidayCountdownInfo
@@ -64,7 +67,12 @@ data class MainUiState(
     val isSyncingPlan: Boolean = false,
     val isSyncingTeachers: Boolean = false,
     val syncError: String? = null,
-    val snackbarMessage: String? = null
+    val snackbarMessage: String? = null,
+    val appVersionName: String = BuildConfig.VERSION_NAME,
+    val appVersionCode: Int = BuildConfig.VERSION_CODE,
+    val isCheckingUpdates: Boolean = false,
+    val updateCheckResult: UpdateCheckResult? = null,
+    val startupUpdatePrompt: UpdateCheckResult.UpdateAvailable? = null
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -74,6 +82,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = db.timetableDao()
     private val repository = TimetableRepository(dao, TimetableRemoteDataSource())
     private val prefsRepository = UserPreferencesRepository(application)
+    private val githubChecker = GitHubReleaseChecker()
 
     private val selectedPlanEntryFlow = MutableStateFlow<PlanEntry?>(null)
     private val locatorFilterFlow = MutableStateFlow(
@@ -89,7 +98,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val isSyncingPlan: Boolean = false,
         val isSyncingTeachers: Boolean = false,
         val syncError: String? = null,
-        val snackbarMessage: String? = null
+        val snackbarMessage: String? = null,
+        val isCheckingUpdates: Boolean = false,
+        val updateCheckResult: UpdateCheckResult? = null,
+        val startupUpdatePrompt: UpdateCheckResult.UpdateAvailable? = null
     )
 
     private val pinnedPlanFlow = prefsRepository.preferencesFlow.flatMapLatest { prefs ->
@@ -182,7 +194,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isSyncingPlan = flags.isSyncingPlan,
             isSyncingTeachers = flags.isSyncingTeachers,
             syncError = flags.syncError,
-            snackbarMessage = flags.snackbarMessage
+            snackbarMessage = flags.snackbarMessage,
+            appVersionName = BuildConfig.VERSION_NAME,
+            appVersionCode = BuildConfig.VERSION_CODE,
+            isCheckingUpdates = flags.isCheckingUpdates,
+            updateCheckResult = flags.updateCheckResult,
+            startupUpdatePrompt = flags.startupUpdatePrompt
         )
     }.stateIn(
         scope = viewModelScope,
@@ -218,12 +235,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Initial automatic sync on startup
+        // Initial automatic sync on startup + optional GitHub release check
         viewModelScope.launch {
             val prefs = prefsRepository.getOnce()
             refreshIndexAndPinnedPlan(silentIfCached = false)
             if (prefs.pinnedPlanEntry != null && selectedPlanEntryFlow.value == null) {
                 selectedPlanEntryFlow.value = prefs.pinnedPlanEntry
+            }
+            if (prefs.autoCheckUpdatesOnStartup) {
+                checkForAppUpdates(isAutomatic = true)
             }
         }
     }
@@ -438,6 +458,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() {
         syncFlagsFlow.value = syncFlagsFlow.value.copy(syncError = null)
+    }
+
+    fun setAutoCheckUpdatesOnStartup(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.setAutoCheckUpdatesOnStartup(enabled)
+        }
+    }
+
+    fun dismissStartupUpdatePrompt() {
+        syncFlagsFlow.value = syncFlagsFlow.value.copy(startupUpdatePrompt = null)
+    }
+
+    fun checkForAppUpdates(isAutomatic: Boolean = false) {
+        viewModelScope.launch {
+            syncFlagsFlow.value = syncFlagsFlow.value.copy(isCheckingUpdates = true)
+            val result = githubChecker.checkLatestRelease(BuildConfig.VERSION_NAME)
+            val now = System.currentTimeMillis()
+
+            when (result) {
+                is UpdateCheckResult.UpToDate -> {
+                    prefsRepository.saveGithubSyncInfo(
+                        version = result.release.normalizedVersion,
+                        url = result.release.apkDownloadUrl ?: result.release.htmlUrl,
+                        checkedAtMs = now
+                    )
+                    syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                        isCheckingUpdates = false,
+                        updateCheckResult = result,
+                        snackbarMessage = if (isAutomatic) null else {
+                            "Aplikacja jest aktualna (v${result.localVersion} • GitHub v${result.release.normalizedVersion})"
+                        }
+                    )
+                }
+                is UpdateCheckResult.UpdateAvailable -> {
+                    prefsRepository.saveGithubSyncInfo(
+                        version = result.release.normalizedVersion,
+                        url = result.release.apkDownloadUrl ?: result.release.htmlUrl,
+                        checkedAtMs = now
+                    )
+                    syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                        isCheckingUpdates = false,
+                        updateCheckResult = result,
+                        startupUpdatePrompt = if (isAutomatic) result else syncFlagsFlow.value.startupUpdatePrompt,
+                        snackbarMessage = if (isAutomatic) null else {
+                            "Dostępna nowa wersja na GitHub: v${result.release.normalizedVersion}"
+                        }
+                    )
+                }
+                is UpdateCheckResult.NoReleasesPublished -> {
+                    prefsRepository.saveGithubSyncInfo(
+                        version = null,
+                        url = result.repoUrl,
+                        checkedAtMs = now
+                    )
+                    syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                        isCheckingUpdates = false,
+                        updateCheckResult = result,
+                        snackbarMessage = if (isAutomatic) null else {
+                            "Brak opublikowanych wydań na GitHubie (wersja lokalna: v${result.localVersion})"
+                        }
+                    )
+                }
+                is UpdateCheckResult.Error -> {
+                    syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                        isCheckingUpdates = false,
+                        updateCheckResult = result,
+                        snackbarMessage = if (isAutomatic) null else {
+                            "Nie udało się sprawdzić aktualizacji: ${result.message}"
+                        }
+                    )
+                }
+            }
+        }
     }
 
     private suspend fun rescheduleLessonAlarms() {

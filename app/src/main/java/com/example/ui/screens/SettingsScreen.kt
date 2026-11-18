@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -27,9 +30,11 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,7 +55,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.network.GitHubReleaseChecker
+import com.example.data.network.UpdateCheckResult
 import com.example.data.repository.PolishCalendarCalculator
 import com.example.model.PlanCategory
 import com.example.model.PlanEntry
@@ -57,6 +66,7 @@ import com.example.model.SimpleDate
 import com.example.model.ThemeMode
 import com.example.notifications.NotificationHelper
 import com.example.ui.components.SelectMainPlanDialog
+import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.viewmodel.MainUiState
 
 @Composable
@@ -72,6 +82,8 @@ fun SettingsScreen(
     onSendTestNotification: () -> Unit,
     onPinEntry: (PlanEntry) -> Unit,
     onRefreshIndex: () -> Unit,
+    onSetAutoCheckUpdates: (Boolean) -> Unit,
+    onCheckUpdatesNow: () -> Unit,
     onClearCache: () -> Unit,
     onClearChangesLog: () -> Unit,
     modifier: Modifier = Modifier
@@ -415,6 +427,164 @@ fun SettingsScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // GitHub Releases Update & Version Sync
+        item {
+            val updateResult = uiState.updateCheckResult
+            val targetReleaseUrl = when (updateResult) {
+                is UpdateCheckResult.UpdateAvailable -> updateResult.release.apkDownloadUrl ?: updateResult.release.htmlUrl
+                is UpdateCheckResult.UpToDate -> updateResult.release.htmlUrl
+                is UpdateCheckResult.NoReleasesPublished -> updateResult.repoUrl
+                else -> uiState.preferences.lastSyncedGithubUrl ?: GitHubReleaseChecker.RELEASES_WEB_URL
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.SystemUpdate,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Aktualizacje (GitHub)", style = MaterialTheme.typography.titleMedium)
+                        }
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "v${uiState.appVersionName}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    val statusText = when (updateResult) {
+                        is UpdateCheckResult.UpdateAvailable ->
+                            "Dostępna nowa wersja: v${updateResult.release.normalizedVersion} (obecna: v${updateResult.localVersion})"
+                        is UpdateCheckResult.UpToDate ->
+                            "Wersja zsynchronizowana z GitHubem (v${updateResult.release.normalizedVersion})"
+                        is UpdateCheckResult.NoReleasesPublished ->
+                            "Brak opublikowanych wydań na GitHubie • wersja lokalna v${updateResult.localVersion}"
+                        is UpdateCheckResult.Error ->
+                            "Błąd sprawdzania: ${updateResult.message}"
+                        null -> uiState.preferences.lastSyncedGithubVersion?.let {
+                            "Ostatnio zsynchronizowana wersja GitHub: v$it"
+                        } ?: "Zainstalowana wersja: v${uiState.appVersionName} (kod ${uiState.appVersionCode})"
+                    }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (updateResult is UpdateCheckResult.UpdateAvailable) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+
+                    if (updateResult is UpdateCheckResult.UpdateAvailable && updateResult.release.releaseNotes.isNotBlank()) {
+                        Text(
+                            text = updateResult.release.releaseNotes.take(220),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Automatyczne sprawdzanie aktualizacji przy uruchomieniu",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Repozytorium: github.com/dniesobski/ZS5-Assistant",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Switch(
+                            checked = uiState.preferences.autoCheckUpdatesOnStartup,
+                            onCheckedChange = onSetAutoCheckUpdates,
+                            modifier = Modifier.testTag("switch_auto_check_updates")
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onCheckUpdatesNow,
+                            enabled = !uiState.isCheckingUpdates,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("check_updates_now_btn")
+                        ) {
+                            if (uiState.isCheckingUpdates) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Sprawdź teraz")
+                            }
+                        }
+
+                        val openReleaseAction = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetReleaseUrl))
+                            context.startActivity(intent)
+                        }
+                        if (updateResult is UpdateCheckResult.UpdateAvailable) {
+                            Button(
+                                onClick = openReleaseAction,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("open_github_release_btn")
+                            ) {
+                                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Pobierz v${updateResult.release.normalizedVersion}")
+                            }
+                        } else {
+                            FilledTonalButton(
+                                onClick = openReleaseAction,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("open_github_release_btn")
+                            ) {
+                                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("GitHub Release")
                             }
                         }
                     }

@@ -16,8 +16,24 @@ android {
     applicationId = "com.aistudio.zs5rybnik.rxkpvm"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+
+    // Synchronizuj wersję aplikacji z tagiem GitHub Release (np. v1.2.3), gdy podano -PgithubTag lub GITHUB_REF_NAME
+    val githubTag = (project.findProperty("githubTag") as String?)
+      ?: System.getenv("GITHUB_REF_NAME")?.takeIf { it.startsWith("v", ignoreCase = true) }
+    val resolvedVersionName = githubTag
+      ?.trim()
+      ?.removePrefix("v")
+      ?.removePrefix("V")
+      ?.substringBefore('-')
+      ?.takeIf { it.isNotBlank() }
+      ?: "1.0.0"
+    val semverParts = resolvedVersionName.split('.').map { it.toIntOrNull() ?: 0 }
+    val resolvedVersionCode = (semverParts.getOrElse(0) { 1 } * 10000) +
+      (semverParts.getOrElse(1) { 0 } * 100) +
+      semverParts.getOrElse(2) { 0 }
+
+    versionCode = resolvedVersionCode.coerceAtLeast(1)
+    versionName = resolvedVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
