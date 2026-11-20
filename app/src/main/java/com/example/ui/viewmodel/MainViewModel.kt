@@ -432,13 +432,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.clearScheduleChanges() }
     }
 
-    fun addDirectorFreeDay(date: SimpleDate, name: String) {
+    fun addDirectorFreeDay(
+        startDate: SimpleDate,
+        endDate: SimpleDate = startDate,
+        name: String
+    ) {
         viewModelScope.launch {
-            repository.addDirectorFreeDay(date, name)
+            val (from, to) = if (startDate <= endDate) startDate to endDate else endDate to startDate
+            val addedCount = repository.addDirectorFreeDayRange(from, to, name)
             rescheduleLessonAlarms()
-            syncFlagsFlow.value = syncFlagsFlow.value.copy(
-                snackbarMessage = "Dodano dzień wolny: ${PolishCalendarCalculator.formatShortDate(date)}"
-            )
+            val message = when {
+                addedCount <= 0 -> "Wybrane daty są już zapisane jako dni dyrektorskie"
+                from == to -> "Dodano dzień wolny: ${PolishCalendarCalculator.formatShortDate(from)}"
+                else -> "Dodano $addedCount dni wolne (${PolishCalendarCalculator.formatShortDate(from)} – ${PolishCalendarCalculator.formatShortDate(to)})"
+            }
+            syncFlagsFlow.value = syncFlagsFlow.value.copy(snackbarMessage = message)
         }
     }
 

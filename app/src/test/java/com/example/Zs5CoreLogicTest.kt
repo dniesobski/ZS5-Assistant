@@ -255,5 +255,21 @@ class Zs5CoreLogicTest {
         val info = PolishCalendarCalculator.calculateCountdown(SimpleDate(2026, 11, 16), directorDays)
         assertEquals(SimpleDate(2026, 11, 20), info.nextFreeEvent?.date)
         assertEquals(4L, info.daysUntilNextFreeDay)
+
+        val single = PolishCalendarCalculator.expandDateRange(SimpleDate(2026, 5, 4), SimpleDate(2026, 5, 4))
+        assertEquals(listOf(SimpleDate(2026, 5, 4)), single)
+
+        val threeDays = PolishCalendarCalculator.expandDateRange(SimpleDate(2026, 5, 4), SimpleDate(2026, 5, 6))
+        assertEquals(
+            listOf(SimpleDate(2026, 5, 4), SimpleDate(2026, 5, 5), SimpleDate(2026, 5, 6)),
+            threeDays
+        )
+
+        val reversed = PolishCalendarCalculator.expandDateRange(SimpleDate(2026, 5, 6), SimpleDate(2026, 5, 4))
+        assertEquals(threeDays, reversed)
+
+        threeDays.forEach { d ->
+            assertEquals(d, PolishCalendarCalculator.fromEpochDay(PolishCalendarCalculator.toEpochDay(d)))
+        }
     }
 }

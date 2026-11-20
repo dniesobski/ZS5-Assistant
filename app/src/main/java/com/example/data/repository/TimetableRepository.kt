@@ -153,13 +153,29 @@ class TimetableRepository(
     suspend fun clearCachedPlans() = dao.clearCachedPlans()
 
     suspend fun addDirectorFreeDay(date: SimpleDate, name: String) {
-        val epochDay = PolishCalendarCalculator.toEpochDay(date)
-        dao.insertDirectorFreeDay(
-            DirectorFreeDayEntity(
-                epochDay = epochDay,
-                name = name.ifBlank { "Dzień dyrektorski" }
-            )
-        )
+        addDirectorFreeDayRange(date, date, name)
+    }
+
+    suspend fun addDirectorFreeDayRange(
+        startDate: SimpleDate,
+        endDate: SimpleDate,
+        name: String
+    ): Int {
+        val label = name.trim().ifBlank { "Dzień dyrektorski" }
+        val dates = PolishCalendarCalculator.expandDateRange(startDate, endDate)
+        val existingEpochDays = dao.getDirectorFreeDaysOnce().map { it.epochDay }.toHashSet()
+        val entities = dates.mapNotNull { date ->
+            val epochDay = PolishCalendarCalculator.toEpochDay(date)
+            if (epochDay in existingEpochDays) {
+                null
+            } else {
+                DirectorFreeDayEntity(epochDay = epochDay, name = label)
+            }
+        }
+        if (entities.isNotEmpty()) {
+            dao.insertDirectorFreeDays(entities)
+        }
+        return entities.size
     }
 
     suspend fun removeDirectorFreeDay(id: Long) {

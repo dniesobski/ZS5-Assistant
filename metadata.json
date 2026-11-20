@@ -1,5 +1,5 @@
 {
-  "name": "ZS5 asystent ucznia",
+  "name": "ZS5 Assistant",
   "description": "Plan lekcji, lokalizator nauczycieli, zmiany w harmonogramie oraz kalendarz dni wolnych i wakacji dla Zespołu Szkół nr 5 w Rybniku.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

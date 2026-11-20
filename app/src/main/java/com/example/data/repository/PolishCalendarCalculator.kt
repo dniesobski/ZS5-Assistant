@@ -4,6 +4,7 @@ import com.example.model.HolidayCountdownInfo
 import com.example.model.HolidayEvent
 import com.example.model.SimpleDate
 import java.util.Calendar
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 object PolishCalendarCalculator {
@@ -26,8 +27,10 @@ object PolishCalendarCalculator {
         )
     }
 
+    private val utcTimeZone: TimeZone = TimeZone.getTimeZone("UTC")
+
     fun toEpochDay(date: SimpleDate): Long {
-        val cal = Calendar.getInstance().apply {
+        val cal = Calendar.getInstance(utcTimeZone).apply {
             set(Calendar.YEAR, date.year)
             set(Calendar.MONTH, date.month - 1)
             set(Calendar.DAY_OF_MONTH, date.day)
@@ -40,7 +43,7 @@ object PolishCalendarCalculator {
     }
 
     fun fromEpochDay(epochDay: Long): SimpleDate {
-        val cal = Calendar.getInstance().apply {
+        val cal = Calendar.getInstance(utcTimeZone).apply {
             timeInMillis = TimeUnit.DAYS.toMillis(epochDay)
         }
         return SimpleDate(
@@ -83,15 +86,22 @@ object PolishCalendarCalculator {
     }
 
     fun daysBetween(start: SimpleDate, end: SimpleDate): Long {
-        val c1 = Calendar.getInstance().apply {
-            set(start.year, start.month - 1, start.day, 0, 0, 0)
-            set(Calendar.MILLISECOND, 0)
+        return toEpochDay(end) - toEpochDay(start)
+    }
+
+    fun expandDateRange(
+        start: SimpleDate,
+        end: SimpleDate,
+        maxDays: Int = 60
+    ): List<SimpleDate> {
+        val (from, to) = if (start <= end) start to end else end to start
+        val result = mutableListOf<SimpleDate>()
+        var cursor = from
+        while (cursor <= to && result.size < maxDays) {
+            result.add(cursor)
+            cursor = addDays(cursor, 1)
         }
-        val c2 = Calendar.getInstance().apply {
-            set(end.year, end.month - 1, end.day, 0, 0, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return TimeUnit.MILLISECONDS.toDays(c2.timeInMillis - c1.timeInMillis)
+        return result
     }
 
     /**

@@ -24,8 +24,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -35,7 +35,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +57,7 @@ import java.util.TimeZone
 @Composable
 fun CalendarScreen(
     uiState: MainUiState,
-    onAddDirectorDay: (SimpleDate, String) -> Unit,
+    onAddDirectorDay: (SimpleDate, SimpleDate, String) -> Unit,
     onRemoveDirectorDay: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -67,8 +67,8 @@ fun CalendarScreen(
     if (showAddDialog) {
         AddDirectorDayDialog(
             onDismiss = { showAddDialog = false },
-            onConfirm = { date, name ->
-                onAddDirectorDay(date, name)
+            onConfirm = { startDate, endDate, name ->
+                onAddDirectorDay(startDate, endDate, name)
                 showAddDialog = false
             }
         )
@@ -372,33 +372,49 @@ private fun HolidayEventRow(
 @Composable
 fun AddDirectorDayDialog(
     onDismiss: () -> Unit,
-    onConfirm: (SimpleDate, String) -> Unit
+    onConfirm: (SimpleDate, SimpleDate, String) -> Unit
 ) {
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = System.currentTimeMillis()
+    val rangePickerState = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = System.currentTimeMillis(),
+        initialSelectedEndDateMillis = null
     )
     var stepPickLabel by remember { mutableStateOf(false) }
-    var chosenDate by remember { mutableStateOf(PolishCalendarCalculator.today()) }
+    var chosenStartDate by remember { mutableStateOf(PolishCalendarCalculator.today()) }
+    var chosenEndDate by remember { mutableStateOf(PolishCalendarCalculator.today()) }
     var labelText by remember { mutableStateOf("Dzień dyrektorski") }
+
+    fun millisToSimpleDate(millis: Long): SimpleDate {
+        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            timeInMillis = millis
+        }
+        return SimpleDate(
+            year = cal.get(Calendar.YEAR),
+            month = cal.get(Calendar.MONTH) + 1,
+            day = cal.get(Calendar.DAY_OF_MONTH)
+        )
+    }
 
     if (!stepPickLabel) {
         DatePickerDialog(
             onDismissRequest = onDismiss,
             confirmButton = {
-                Button(onClick = {
-                    val millis = datePickerState.selectedDateMillis
-                    if (millis != null) {
-                        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-                            timeInMillis = millis
+                Button(
+                    onClick = {
+                        val startMillis = rangePickerState.selectedStartDateMillis
+                        val endMillis = rangePickerState.selectedEndDateMillis
+                        if (startMillis != null) {
+                            chosenStartDate = millisToSimpleDate(startMillis)
+                            chosenEndDate = if (endMillis != null) {
+                                millisToSimpleDate(endMillis)
+                            } else {
+                                chosenStartDate
+                            }
                         }
-                        chosenDate = SimpleDate(
-                            year = cal.get(Calendar.YEAR),
-                            month = cal.get(Calendar.MONTH) + 1,
-                            day = cal.get(Calendar.DAY_OF_MONTH)
-                        )
-                    }
-                    stepPickLabel = true
-                }) {
+                        stepPickLabel = true
+                    },
+                    enabled = rangePickerState.selectedStartDateMillis != null,
+                    modifier = Modifier.testTag("director_range_next_btn")
+                ) {
                     Text("Dalej")
                 }
             },
@@ -408,16 +424,57 @@ fun AddDirectorDayDialog(
                 }
             }
         ) {
-            DatePicker(state = datePickerState)
+            DateRangePicker(
+                state = rangePickerState,
+                title = {
+                    Text(
+                        text = "Wybierz dzień lub zakres dat (od – do)",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp)
+                    )
+                },
+                headline = {
+                    val startMs = rangePickerState.selectedStartDateMillis
+                    val endMs = rangePickerState.selectedEndDateMillis
+                    val summary = when {
+                        startMs == null -> "Wskaż dzień początkowy i końcowy"
+                        endMs == null || endMs == startMs -> {
+                            "1 dzień: ${PolishCalendarCalculator.formatShortDate(millisToSimpleDate(startMs))}"
+                        }
+                        else -> {
+                            val s = millisToSimpleDate(startMs)
+                            val e = millisToSimpleDate(endMs)
+                            val count = (PolishCalendarCalculator.daysBetween(s, e) + 1).coerceAtLeast(1)
+                            "${PolishCalendarCalculator.formatShortDate(s)} – ${PolishCalendarCalculator.formatShortDate(e)} ($count dni)"
+                        }
+                    }
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = 24.dp, end = 12.dp, bottom = 12.dp)
+                    )
+                },
+                showModeToggle = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
         }
     } else {
+        val totalDays = (PolishCalendarCalculator.daysBetween(chosenStartDate, chosenEndDate) + 1).coerceAtLeast(1)
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Nazwa dnia wolnego") },
+            title = {
+                Text(if (totalDays > 1) "Nazwa dni wolnych" else "Nazwa dnia wolnego")
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Wybrana data: ${PolishCalendarCalculator.formatDatePl(chosenDate)}",
+                        text = if (chosenStartDate == chosenEndDate) {
+                            "Wybrana data: ${PolishCalendarCalculator.formatDatePl(chosenStartDate)}"
+                        } else {
+                            "Wybrany zakres: ${PolishCalendarCalculator.formatShortDate(chosenStartDate)} – ${PolishCalendarCalculator.formatShortDate(chosenEndDate)} ($totalDays dni)"
+                        },
                         style = MaterialTheme.typography.bodyMedium
                     )
                     OutlinedTextField(
@@ -425,20 +482,34 @@ fun AddDirectorDayDialog(
                         onValueChange = { labelText = it },
                         label = { Text("Okazja / opis") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("director_day_name_input")
                     )
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    onConfirm(chosenDate, labelText.trim().ifBlank { "Dzień dyrektorski" })
-                }) {
-                    Text("Dodaj")
+                Button(
+                    onClick = {
+                        onConfirm(
+                            chosenStartDate,
+                            chosenEndDate,
+                            labelText.trim().ifBlank { "Dzień dyrektorski" }
+                        )
+                    },
+                    modifier = Modifier.testTag("director_range_confirm_btn")
+                ) {
+                    Text(if (totalDays > 1) "Dodaj ($totalDays dni)" else "Dodaj")
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text("Anuluj")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { stepPickLabel = false }) {
+                        Text("Zmień daty")
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("Anuluj")
+                    }
                 }
             }
         )

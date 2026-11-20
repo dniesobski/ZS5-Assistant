@@ -82,7 +82,7 @@ fun SettingsScreen(
     onSetNotifyScheduleChanges: (Boolean) -> Unit,
     onSetNotifyLessonEnd: (Boolean) -> Unit,
     onSetLessonEndMinutesBefore: (Int) -> Unit,
-    onAddDirectorDay: (SimpleDate, String) -> Unit,
+    onAddDirectorDay: (SimpleDate, SimpleDate, String) -> Unit,
     onRemoveDirectorDay: (Long) -> Unit,
     onCheckChangesNow: () -> Unit,
     onSendTestNotification: () -> Unit,
@@ -123,8 +123,8 @@ fun SettingsScreen(
     if (showAddDirectorDialog) {
         AddDirectorDayDialog(
             onDismiss = { showAddDirectorDialog = false },
-            onConfirm = { date, name ->
-                onAddDirectorDay(date, name)
+            onConfirm = { startDate, endDate, name ->
+                onAddDirectorDay(startDate, endDate, name)
                 showAddDirectorDialog = false
             }
         )

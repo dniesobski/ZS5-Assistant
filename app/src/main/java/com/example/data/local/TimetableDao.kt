@@ -73,6 +73,9 @@ interface TimetableDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDirectorFreeDay(day: DirectorFreeDayEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDirectorFreeDays(days: List<DirectorFreeDayEntity>)
+
     @Query("DELETE FROM director_free_days WHERE id = :id")
     suspend fun deleteDirectorFreeDay(id: Long)
 }

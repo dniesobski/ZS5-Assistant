@@ -128,7 +128,7 @@ fun Zs5AppShell(viewModel: MainViewModel) {
                     val notes = available.release.releaseNotes.takeIf { it.isNotBlank() }
                         ?.let { "\n\n${it.take(300)}" } ?: ""
                     Text(
-                        "Opublikowano nową wersję aplikacji ZS5 asystent ucznia (obecna: v${available.localVersion}).$notes"
+                        "Opublikowano nową wersję aplikacji ZS5 Assistant (obecna: v${available.localVersion}).$notes"
                     )
                     when (downloadState) {
                         is ApkDownloadState.Downloading -> {
@@ -373,7 +373,9 @@ fun Zs5AppShell(viewModel: MainViewModel) {
                     composable(AppDestination.CALENDAR.route) {
                         CalendarScreen(
                             uiState = uiState,
-                            onAddDirectorDay = { date, name -> viewModel.addDirectorFreeDay(date, name) },
+                            onAddDirectorDay = { startDate, endDate, name ->
+                                viewModel.addDirectorFreeDay(startDate, endDate, name)
+                            },
                             onRemoveDirectorDay = { viewModel.removeDirectorFreeDay(it) }
                         )
                     }
@@ -385,7 +387,9 @@ fun Zs5AppShell(viewModel: MainViewModel) {
                             onSetNotifyScheduleChanges = { viewModel.setNotifyScheduleChanges(it) },
                             onSetNotifyLessonEnd = { viewModel.setNotifyLessonEnd(it) },
                             onSetLessonEndMinutesBefore = { viewModel.setLessonEndMinutesBefore(it) },
-                            onAddDirectorDay = { date, name -> viewModel.addDirectorFreeDay(date, name) },
+                            onAddDirectorDay = { startDate, endDate, name ->
+                                viewModel.addDirectorFreeDay(startDate, endDate, name)
+                            },
                             onRemoveDirectorDay = { viewModel.removeDirectorFreeDay(it) },
                             onCheckChangesNow = { viewModel.syncPinnedPlanNow() },
                             onSendTestNotification = { viewModel.sendTestNotification() },
