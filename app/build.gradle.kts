@@ -18,22 +18,13 @@ android {
     targetSdk = 36
 
     // Synchronizuj wersję aplikacji z tagiem GitHub Release (np. v1.2.3), gdy podano -PgithubTag lub GITHUB_REF_NAME
-    val githubTag = (project.findProperty("githubTag") as String?)
-      ?: System.getenv("GITHUB_REF_NAME")?.takeIf { it.startsWith("v", ignoreCase = true) }
-    val resolvedVersionName = githubTag
-      ?.trim()
-      ?.removePrefix("v")
-      ?.removePrefix("V")
-      ?.substringBefore('-')
+   val ciRunNumber = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()
+      ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+    versionCode = (ciRunNumber ?: 8).coerceAtLeast(1)
+    versionName = providers.gradleProperty("appVersionName").orNull
       ?.takeIf { it.isNotBlank() }
-      ?: "1.0.0"
-    val semverParts = resolvedVersionName.split('.').map { it.toIntOrNull() ?: 0 }
-    val resolvedVersionCode = (semverParts.getOrElse(0) { 1 } * 10000) +
-      (semverParts.getOrElse(1) { 0 } * 100) +
-      semverParts.getOrElse(2) { 0 }
-
-    versionCode = resolvedVersionCode.coerceAtLeast(1)
-    versionName = resolvedVersionName
+      ?: ciRunNumber?.let { "v1.0.$it" }
+      ?: "v1.0.8"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
