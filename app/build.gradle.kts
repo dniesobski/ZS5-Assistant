@@ -40,23 +40,23 @@ android {
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
   // and updating Android apps in AI Studio.
-  signingConfigs {
+    signingConfigs {
         create("release") {
-            storeFile = file("../key.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
+            storeFile = file("../klucz_zsme.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "TWOJE_HASLO_DO_KEYSTORE"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "zsme_key"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "TWOJE_HASLO_DO_KLUCZA"
         }
     }
- buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
+
+  buildTypes {
+    release {
+      isCrunchPngs = false
+      isMinifyEnabled = false
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
+      // AI Studio.
+      signingConfig = signingConfigs.getByName("release")
     }
   }
   compileOptions {
