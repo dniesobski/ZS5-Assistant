@@ -1,5 +1,9 @@
 package com.example
 
+import android.content.Context
+import android.content.Intent
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.network.ApkUpdateInstaller
 import com.example.data.network.GitHubReleaseChecker
 import com.example.data.network.OptivumHtmlParser
 import com.example.data.repository.PolishCalendarCalculator
@@ -18,6 +22,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -48,6 +53,27 @@ class Zs5CoreLogicTest {
         val parsed = GitHubReleaseChecker.parseReleaseJson(json)
         assertEquals("1.3.0", parsed.normalizedVersion)
         assertEquals("https://github.com/dniesobski/ZS5-Assistant/releases/download/v1.3.0/zs5-asystent-v1.3.0.apk", parsed.apkDownloadUrl)
+        assertEquals("1.0.8", GitHubReleaseChecker.normalizeVersion("v1.0.8"))
+    }
+
+    @Test
+    fun `apk update installer validates pk header and creates file provider install intent`() {
+        assertTrue(ApkUpdateInstaller.isValidApkHeader(byteArrayOf(0x50, 0x4B, 0x03, 0x04)))
+        assertFalse(ApkUpdateInstaller.isValidApkHeader("<html>Not Found</html>".toByteArray()))
+        assertFalse(ApkUpdateInstaller.isValidApkHeader(byteArrayOf(0x50)))
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val dummyApk = File(updatesDir, "ZS5Assist-update.apk").apply {
+            writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+        }
+
+        val intent = ApkUpdateInstaller.buildInstallApkIntent(context, dummyApk)
+        assertEquals(Intent.ACTION_VIEW, intent.action)
+        assertEquals("application/vnd.android.package-archive", intent.type)
+        assertTrue((intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0)
+        assertNotNull(intent.data)
+        assertEquals("${context.packageName}.fileprovider", intent.data?.authority)
     }
 
     @Test

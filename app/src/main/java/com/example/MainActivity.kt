@@ -4,12 +4,17 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
@@ -28,6 +33,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -54,6 +60,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.data.network.ApkDownloadState
+import com.example.data.network.ApkUpdateInstaller
 import com.example.model.PlanCategory
 import com.example.ui.screens.CalendarScreen
 import com.example.ui.screens.SettingsScreen
@@ -99,30 +107,123 @@ fun Zs5AppShell(viewModel: MainViewModel) {
     val currentRoute = navBackStackEntry?.destination?.route ?: AppDestination.TODAY.route
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (ApkUpdateInstaller.canInstallPackages(context)) {
+            viewModel.installDownloadedApk()
+        }
+    }
 
     uiState.startupUpdatePrompt?.let { available ->
+        val downloadState = uiState.apkDownloadState
+        val isDownloading = downloadState is ApkDownloadState.Downloading
         AlertDialog(
-            onDismissRequest = { viewModel.dismissStartupUpdatePrompt() },
+            onDismissRequest = {
+                if (!isDownloading) viewModel.dismissStartupUpdatePrompt()
+            },
             title = { Text("Dostępna aktualizacja v${available.release.normalizedVersion}") },
             text = {
-                val notes = available.release.releaseNotes.takeIf { it.isNotBlank() }
-                    ?.let { "\n\n${it.take(300)}" } ?: ""
-                Text(
-                    "Na GitHubie opublikowano nową wersję aplikacji ZS5 asystent ucznia (obecna: v${available.localVersion}).$notes"
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val notes = available.release.releaseNotes.takeIf { it.isNotBlank() }
+                        ?.let { "\n\n${it.take(300)}" } ?: ""
+                    Text(
+                        "Opublikowano nową wersję aplikacji ZS5 asystent ucznia (obecna: v${available.localVersion}).$notes"
+                    )
+                    when (downloadState) {
+                        is ApkDownloadState.Downloading -> {
+                            if (downloadState.progress != null) {
+                                LinearProgressIndicator(
+                                    progress = { downloadState.progress },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = "Pobieranie: ${(downloadState.progress * 100).toInt()}% (${ApkUpdateInstaller.formatBytesMb(downloadState.downloadedBytes)} / ${ApkUpdateInstaller.formatBytesMb(downloadState.totalBytes)})",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                Text(
+                                    text = "Pobieranie pakietu APK...",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                        is ApkDownloadState.ReadyToInstall -> {
+                            Text(
+                                text = if (downloadState.needsInstallPermission || !ApkUpdateInstaller.canInstallPackages(context)) {
+                                    "Pobrano plik APK. Zezwól na instalację z tego źródła, aby zainstalować aktualizację."
+                                } else {
+                                    "Pakiet APK gotowy do instalacji."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        is ApkDownloadState.Error -> {
+                            Text(
+                                text = downloadState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        ApkDownloadState.Idle -> Unit
+                    }
+                }
             },
             confirmButton = {
-                Button(onClick = {
-                    val url = available.release.apkDownloadUrl ?: available.release.htmlUrl
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    viewModel.dismissStartupUpdatePrompt()
-                }) {
-                    Text("Pobierz z GitHub")
+                when {
+                    downloadState is ApkDownloadState.ReadyToInstall -> {
+                        Button(
+                            onClick = {
+                                if (ApkUpdateInstaller.canInstallPackages(context)) {
+                                    viewModel.installDownloadedApk()
+                                } else {
+                                    unknownSourcesLauncher.launch(
+                                        ApkUpdateInstaller.buildInstallPermissionIntent(context)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.testTag("startup_install_apk_btn")
+                        ) {
+                            Text(
+                                if (downloadState.needsInstallPermission || !ApkUpdateInstaller.canInstallPackages(context)) {
+                                    "Zezwól i zainstaluj"
+                                } else {
+                                    "Zainstaluj teraz"
+                                }
+                            )
+                        }
+                    }
+                    available.release.apkDownloadUrl != null -> {
+                        Button(
+                            onClick = {
+                                viewModel.downloadAndInstallUpdate(
+                                    apkUrl = available.release.apkDownloadUrl,
+                                    versionTag = available.release.normalizedVersion
+                                )
+                            },
+                            enabled = !isDownloading,
+                            modifier = Modifier.testTag("startup_download_install_btn")
+                        ) {
+                            Text(if (isDownloading) "Pobieranie..." else "Pobierz i zainstaluj")
+                        }
+                    }
+                    else -> {
+                        Button(onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(available.release.htmlUrl)))
+                            viewModel.dismissStartupUpdatePrompt()
+                        }) {
+                            Text("Otwórz GitHub")
+                        }
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissStartupUpdatePrompt() }) {
-                    Text("Później")
+                if (!isDownloading) {
+                    TextButton(onClick = { viewModel.dismissStartupUpdatePrompt() }) {
+                        Text("Później")
+                    }
                 }
             }
         )
@@ -292,6 +393,10 @@ fun Zs5AppShell(viewModel: MainViewModel) {
                             onRefreshIndex = { viewModel.refreshIndexAndPinnedPlan() },
                             onSetAutoCheckUpdates = { viewModel.setAutoCheckUpdatesOnStartup(it) },
                             onCheckUpdatesNow = { viewModel.checkForAppUpdates(isAutomatic = false) },
+                            onDownloadAndInstallUpdate = { url, tag ->
+                                viewModel.downloadAndInstallUpdate(url, tag)
+                            },
+                            onInstallDownloadedApk = { viewModel.installDownloadedApk() },
                             onClearCache = { viewModel.clearPlanCache() },
                             onClearChangesLog = { viewModel.clearChangesLog() }
                         )

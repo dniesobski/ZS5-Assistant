@@ -17,14 +17,13 @@ android {
     minSdk = 24
     targetSdk = 36
 
-    // Synchronizuj wersję aplikacji z tagiem GitHub Release (np. v1.2.3), gdy podano -PgithubTag lub GITHUB_REF_NAME
    val ciRunNumber = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()
       ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
     versionCode = (ciRunNumber ?: 8).coerceAtLeast(1)
     versionName = providers.gradleProperty("appVersionName").orNull
       ?.takeIf { it.isNotBlank() }
       ?: ciRunNumber?.let { "v1.0.$it" }
-      ?: "v1.0.8"
+      ?: "v1.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -8,7 +8,10 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.ScheduleChangeEntity
 import com.example.data.local.UserPreferences
 import com.example.data.local.UserPreferencesRepository
+import com.example.data.network.ApkDownloadState
+import com.example.data.network.ApkUpdateInstaller
 import com.example.data.network.GitHubReleaseChecker
+import com.example.data.network.InstallLaunchResult
 import com.example.data.network.TimetableRemoteDataSource
 import com.example.data.network.UpdateCheckResult
 import com.example.data.repository.PolishCalendarCalculator
@@ -68,11 +71,12 @@ data class MainUiState(
     val isSyncingTeachers: Boolean = false,
     val syncError: String? = null,
     val snackbarMessage: String? = null,
-    val appVersionName: String = BuildConfig.VERSION_NAME,
+    val appVersionName: String = GitHubReleaseChecker.normalizeVersion(BuildConfig.VERSION_NAME),
     val appVersionCode: Int = BuildConfig.VERSION_CODE,
     val isCheckingUpdates: Boolean = false,
     val updateCheckResult: UpdateCheckResult? = null,
-    val startupUpdatePrompt: UpdateCheckResult.UpdateAvailable? = null
+    val startupUpdatePrompt: UpdateCheckResult.UpdateAvailable? = null,
+    val apkDownloadState: ApkDownloadState = ApkDownloadState.Idle
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -101,7 +105,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val snackbarMessage: String? = null,
         val isCheckingUpdates: Boolean = false,
         val updateCheckResult: UpdateCheckResult? = null,
-        val startupUpdatePrompt: UpdateCheckResult.UpdateAvailable? = null
+        val startupUpdatePrompt: UpdateCheckResult.UpdateAvailable? = null,
+        val apkDownloadState: ApkDownloadState = ApkDownloadState.Idle
     )
 
     private val pinnedPlanFlow = prefsRepository.preferencesFlow.flatMapLatest { prefs ->
@@ -195,11 +200,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isSyncingTeachers = flags.isSyncingTeachers,
             syncError = flags.syncError,
             snackbarMessage = flags.snackbarMessage,
-            appVersionName = BuildConfig.VERSION_NAME,
+            appVersionName = GitHubReleaseChecker.normalizeVersion(BuildConfig.VERSION_NAME),
             appVersionCode = BuildConfig.VERSION_CODE,
             isCheckingUpdates = flags.isCheckingUpdates,
             updateCheckResult = flags.updateCheckResult,
-            startupUpdatePrompt = flags.startupUpdatePrompt
+            startupUpdatePrompt = flags.startupUpdatePrompt,
+            apkDownloadState = flags.apkDownloadState
         )
     }.stateIn(
         scope = viewModelScope,
@@ -531,6 +537,90 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun downloadAndInstallUpdate(apkUrl: String, versionTag: String) {
+        if (syncFlagsFlow.value.apkDownloadState is ApkDownloadState.Downloading) return
+
+        viewModelScope.launch {
+            syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                apkDownloadState = ApkDownloadState.Downloading(
+                    progress = null,
+                    downloadedBytes = 0L,
+                    totalBytes = -1L
+                )
+            )
+            val result = ApkUpdateInstaller.downloadApk(
+                context = getApplication(),
+                apkUrl = apkUrl,
+                onProgress = { progressState ->
+                    syncFlagsFlow.value = syncFlagsFlow.value.copy(apkDownloadState = progressState)
+                }
+            )
+            result.onSuccess { file ->
+                when (val launchRes = ApkUpdateInstaller.launchApkInstall(getApplication(), file)) {
+                    is InstallLaunchResult.Launched -> {
+                        syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                            apkDownloadState = ApkDownloadState.ReadyToInstall(
+                                apkFile = file,
+                                versionTag = versionTag,
+                                needsInstallPermission = false
+                            ),
+                            startupUpdatePrompt = null
+                        )
+                    }
+                    is InstallLaunchResult.PermissionRequired -> {
+                        syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                            apkDownloadState = ApkDownloadState.ReadyToInstall(
+                                apkFile = file,
+                                versionTag = versionTag,
+                                needsInstallPermission = true
+                            ),
+                            snackbarMessage = "Zezwól na instalację aplikacji z tego źródła, aby dokończyć aktualizację"
+                        )
+                    }
+                    is InstallLaunchResult.Failed -> {
+                        syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                            apkDownloadState = ApkDownloadState.Error(launchRes.message)
+                        )
+                    }
+                }
+            }.onFailure { err ->
+                syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                    apkDownloadState = ApkDownloadState.Error(
+                        err.localizedMessage ?: "Nie udało się pobrać pliku APK aktualizacji."
+                    )
+                )
+            }
+        }
+    }
+
+    fun installDownloadedApk() {
+        val current = syncFlagsFlow.value.apkDownloadState
+        if (current !is ApkDownloadState.ReadyToInstall) return
+
+        when (val launchRes = ApkUpdateInstaller.launchApkInstall(getApplication(), current.apkFile)) {
+            is InstallLaunchResult.Launched -> {
+                syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                    apkDownloadState = current.copy(needsInstallPermission = false),
+                    startupUpdatePrompt = null
+                )
+            }
+            is InstallLaunchResult.PermissionRequired -> {
+                syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                    apkDownloadState = current.copy(needsInstallPermission = true)
+                )
+            }
+            is InstallLaunchResult.Failed -> {
+                syncFlagsFlow.value = syncFlagsFlow.value.copy(
+                    apkDownloadState = ApkDownloadState.Error(launchRes.message)
+                )
+            }
+        }
+    }
+
+    fun resetApkDownloadState() {
+        syncFlagsFlow.value = syncFlagsFlow.value.copy(apkDownloadState = ApkDownloadState.Idle)
     }
 
     private suspend fun rescheduleLessonAlarms() {

@@ -25,10 +25,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Button
@@ -40,6 +43,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -57,6 +61,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.network.ApkDownloadState
+import com.example.data.network.ApkUpdateInstaller
 import com.example.data.network.GitHubReleaseChecker
 import com.example.data.network.UpdateCheckResult
 import com.example.data.repository.PolishCalendarCalculator
@@ -84,6 +90,8 @@ fun SettingsScreen(
     onRefreshIndex: () -> Unit,
     onSetAutoCheckUpdates: (Boolean) -> Unit,
     onCheckUpdatesNow: () -> Unit,
+    onDownloadAndInstallUpdate: (String, String) -> Unit,
+    onInstallDownloadedApk: () -> Unit,
     onClearCache: () -> Unit,
     onClearChangesLog: () -> Unit,
     modifier: Modifier = Modifier
@@ -101,6 +109,14 @@ fun SettingsScreen(
         hasNotificationPermission = granted
         if (granted) {
             onSetNotifyLessonEnd(true)
+        }
+    }
+
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (ApkUpdateInstaller.canInstallPackages(context)) {
+            onInstallDownloadedApk()
         }
     }
 
@@ -434,11 +450,13 @@ fun SettingsScreen(
             }
         }
 
-        // GitHub Releases Update & Version Sync
+        // GitHub Releases Update & Direct APK Install
         item {
             val updateResult = uiState.updateCheckResult
-            val targetReleaseUrl = when (updateResult) {
-                is UpdateCheckResult.UpdateAvailable -> updateResult.release.apkDownloadUrl ?: updateResult.release.htmlUrl
+            val downloadState = uiState.apkDownloadState
+            val apkUrl = (updateResult as? UpdateCheckResult.UpdateAvailable)?.release?.apkDownloadUrl
+            val targetReleaseWebUrl = when (updateResult) {
+                is UpdateCheckResult.UpdateAvailable -> updateResult.release.htmlUrl
                 is UpdateCheckResult.UpToDate -> updateResult.release.htmlUrl
                 is UpdateCheckResult.NoReleasesPublished -> updateResult.repoUrl
                 else -> uiState.preferences.lastSyncedGithubUrl ?: GitHubReleaseChecker.RELEASES_WEB_URL
@@ -492,7 +510,7 @@ fun SettingsScreen(
                         is UpdateCheckResult.Error ->
                             "Błąd sprawdzania: ${updateResult.message}"
                         null -> uiState.preferences.lastSyncedGithubVersion?.let {
-                            "Ostatnio zsynchronizowana wersja GitHub: v$it"
+                            "Ostatnio zsynchronizowana wersja GitHub: v${GitHubReleaseChecker.normalizeVersion(it)}"
                         } ?: "Zainstalowana wersja: v${uiState.appVersionName} (kod ${uiState.appVersionCode})"
                     }
                     Text(
@@ -511,6 +529,93 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+
+                    // Direct APK download progress / permission / install state
+                    when (downloadState) {
+                        is ApkDownloadState.Downloading -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (downloadState.progress != null) {
+                                    LinearProgressIndicator(
+                                        progress = { downloadState.progress },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    val percent = (downloadState.progress * 100).toInt()
+                                    Text(
+                                        text = "Pobieranie APK: $percent% (${ApkUpdateInstaller.formatBytesMb(downloadState.downloadedBytes)} / ${ApkUpdateInstaller.formatBytesMb(downloadState.totalBytes)})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    Text(
+                                        text = "Pobieranie APK: ${ApkUpdateInstaller.formatBytesMb(downloadState.downloadedBytes)}...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        is ApkDownloadState.ReadyToInstall -> {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val needsPermission = downloadState.needsInstallPermission ||
+                                        !ApkUpdateInstaller.canInstallPackages(context)
+                                    Text(
+                                        text = if (needsPermission) {
+                                            "Plik APK v${downloadState.versionTag} został pobrany. Zezwól na instalację aplikacji z tego źródła, aby kontynuować."
+                                        } else {
+                                            "Pobrano pakiet APK v${downloadState.versionTag}. Możesz uruchomić instalację bezpośrednio."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Button(
+                                        onClick = {
+                                            if (ApkUpdateInstaller.canInstallPackages(context)) {
+                                                onInstallDownloadedApk()
+                                            } else {
+                                                unknownSourcesLauncher.launch(
+                                                    ApkUpdateInstaller.buildInstallPermissionIntent(context)
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("install_downloaded_apk_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (needsPermission) Icons.Rounded.Security else Icons.Rounded.InstallMobile,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            if (needsPermission) {
+                                                "Zezwól na instalację i zainstaluj"
+                                            } else {
+                                                "Zainstaluj aktualizację"
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        is ApkDownloadState.Error -> {
+                            Text(
+                                text = "Błąd aktualizacji: ${downloadState.message}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        ApkDownloadState.Idle -> Unit
                     }
 
                     Row(
@@ -543,7 +648,7 @@ fun SettingsScreen(
                     ) {
                         OutlinedButton(
                             onClick = onCheckUpdatesNow,
-                            enabled = !uiState.isCheckingUpdates,
+                            enabled = !uiState.isCheckingUpdates && downloadState !is ApkDownloadState.Downloading,
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("check_updates_now_btn")
@@ -560,24 +665,32 @@ fun SettingsScreen(
                             }
                         }
 
-                        val openReleaseAction = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetReleaseUrl))
-                            context.startActivity(intent)
-                        }
-                        if (updateResult is UpdateCheckResult.UpdateAvailable) {
+                        if (updateResult is UpdateCheckResult.UpdateAvailable && apkUrl != null) {
                             Button(
-                                onClick = openReleaseAction,
+                                onClick = {
+                                    onDownloadAndInstallUpdate(apkUrl, updateResult.release.normalizedVersion)
+                                },
+                                enabled = downloadState !is ApkDownloadState.Downloading,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .testTag("open_github_release_btn")
+                                    .testTag("download_install_apk_btn")
                             ) {
-                                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Pobierz v${updateResult.release.normalizedVersion}")
+                                Text(
+                                    if (downloadState is ApkDownloadState.Downloading) {
+                                        "Pobieranie..."
+                                    } else {
+                                        "Aktualizuj v${updateResult.release.normalizedVersion}"
+                                    }
+                                )
                             }
                         } else {
                             FilledTonalButton(
-                                onClick = openReleaseAction,
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetReleaseWebUrl))
+                                    context.startActivity(intent)
+                                },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("open_github_release_btn")

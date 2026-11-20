@@ -149,28 +149,29 @@ class GitHubReleaseChecker(
                 }
             }
 
+            val normalizedLocal = normalizeVersion(localVersion)
             if (releaseInfo == null || releaseInfo.normalizedVersion.isBlank()) {
                 return@withContext UpdateCheckResult.NoReleasesPublished(
-                    localVersion = localVersion,
+                    localVersion = normalizedLocal,
                     repoUrl = RELEASES_WEB_URL
                 )
             }
 
-            val cmp = compareVersions(localVersion, releaseInfo.normalizedVersion)
+            val cmp = compareVersions(normalizedLocal, releaseInfo.normalizedVersion)
             if (cmp > 0) {
                 UpdateCheckResult.UpdateAvailable(
-                    localVersion = localVersion,
+                    localVersion = normalizedLocal,
                     release = releaseInfo
                 )
             } else {
                 UpdateCheckResult.UpToDate(
-                    localVersion = localVersion,
+                    localVersion = normalizedLocal,
                     release = releaseInfo
                 )
             }
         } catch (e: Exception) {
             UpdateCheckResult.Error(
-                localVersion = localVersion,
+                localVersion = normalizeVersion(localVersion),
                 message = e.localizedMessage ?: "Nie udało się połączyć z GitHub"
             )
         }
