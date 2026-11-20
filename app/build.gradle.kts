@@ -42,7 +42,7 @@ android {
   // and updating Android apps in AI Studio.
     signingConfigs {
         create("release") {
-            storeFile = file("../klucz_zsme.jks")
+            storeFile = file("../key.jks")
             storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "TWOJE_HASLO_DO_KEYSTORE"
             keyAlias = System.getenv("KEY_ALIAS") ?: "zsme_key"
             keyPassword = System.getenv("KEY_PASSWORD") ?: "TWOJE_HASLO_DO_KLUCZA"
