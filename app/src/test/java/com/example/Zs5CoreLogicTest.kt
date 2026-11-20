@@ -142,6 +142,60 @@ class Zs5CoreLogicTest {
     }
 
     @Test
+    fun `optivum parser keeps class and group 1-2 or 2-2 in class badge on teacher plans`() {
+        val teacherEntry = PlanEntry("plany/n12.html", "J. Kowalski (JK)", PlanCategory.TEACHER)
+        val html = """
+            <html><body>
+            <span class="tytulnapis">J. Kowalski (JK)</span>
+            <table class="tabela">
+              <tr><th>Nr</th><th>Godz</th><th>Poniedziałek</th><th>Wtorek</th><th>Środa</th><th>Czwartek</th></tr>
+              <tr>
+                <td class="nr">1</td>
+                <td class="g">8:00- 8:45</td>
+                <td class="l"><span style="font-size:85%"><a href="o1.html" class="o">1Ti</a>-1/2 <span class="p">J. angielski</span> <a href="s3.html" class="s">102</a><br><a href="o2.html" class="o">1Tp</a>-2/2 <span class="p">J. angielski</span> <a href="s4.html" class="s">103</a></span></td>
+                <td class="l"><a href="o3.html" class="o">2Tp</a>-1/2,<a href="o4.html" class="o">2Ti</a>-1/2 <span class="p">Wychowanie fizyczne</span> <a href="s10.html" class="s">SG1</a></td>
+                <td class="l"><span class="o"><a href="o5.html" class="o">3Ti</a>-2/2</span> <span class="p">Informatyka</span> <span class="s">105</span></td>
+                <td class="l">4Tp-1/2 <span class="p">Matematyka</span> <a href="s5.html" class="s">204</a></td>
+              </tr>
+            </table>
+            </body></html>
+        """.trimIndent()
+
+        val plan = OptivumHtmlParser.parsePlanPage(html, teacherEntry)
+        assertEquals(4, plan.lessons.size)
+
+        val mon = plan.lessons[0]
+        assertEquals(2, mon.subgroups.size)
+        assertEquals("J. angielski", mon.subgroups[0].subject)
+        assertEquals("1Ti-1/2", mon.subgroups[0].className)
+        assertEquals("plany/o1.html", mon.subgroups[0].classHref)
+        assertEquals("102", mon.subgroups[0].roomName)
+        assertEquals("1/2", mon.subgroups[0].groupLabel)
+
+        assertEquals("J. angielski", mon.subgroups[1].subject)
+        assertEquals("1Tp-2/2", mon.subgroups[1].className)
+        assertEquals("plany/o2.html", mon.subgroups[1].classHref)
+        assertEquals("103", mon.subgroups[1].roomName)
+        assertEquals("2/2", mon.subgroups[1].groupLabel)
+
+        val tue = plan.lessons[1].subgroups[0]
+        assertEquals("Wychowanie fizyczne", tue.subject)
+        assertEquals("2Tp-1/2, 2Ti-1/2", tue.className)
+        assertEquals("SG1", tue.roomName)
+
+        val wed = plan.lessons[2].subgroups[0]
+        assertEquals("Informatyka", wed.subject)
+        assertEquals("3Ti-2/2", wed.className)
+        assertEquals("plany/o5.html", wed.classHref)
+        assertEquals("105", wed.roomName)
+
+        val thu = plan.lessons[3].subgroups[0]
+        assertEquals("Matematyka", thu.subject)
+        assertEquals("4Tp-1/2", thu.className)
+        assertEquals("204", thu.roomName)
+    }
+
+    @Test
     fun `teacher locator finds active lesson and next lesson`() {
         val teacher = PlanEntry("plany/n12.html", "J. Kowalski (JK)", PlanCategory.TEACHER)
         val html = """

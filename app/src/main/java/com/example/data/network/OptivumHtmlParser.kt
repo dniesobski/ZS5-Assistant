@@ -50,9 +50,19 @@ object OptivumHtmlParser {
         """<table\b([^>]*)>(.*?)</table>""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     )
-    private val spanOrARegex = Regex(
-        """<(span|a)\b([^>]*)>(.*?)</\1>""",
+    private val spanOrATagRegex = Regex(
+        """<(/?)(span|a)\b([^>]*)>""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+    )
+    private val classGroupSuffixRegex = Regex(
+        """^(-\s*(?:\d+/\d+|gr\.?\s*\d+|[A-Za-zżółćęśąźńŻÓŁĆĘŚĄŹŃ0-9]{1,5}\d?)|\s*\((?:\d+/\d+|gr\.?\s*\d+|[A-Za-z0-9]{1,4})\)|\s+\d+/\d+)(?=$|[\s,;(<])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val untaggedClassTokenRegex = Regex(
+        """\b(\d+[A-Za-zżółćęśąźńŻÓŁĆĘŚĄŹŃ]{1,5}\d*(?:-\d+/\d+|/\d+|-gr\.?\s*\d+|-[A-Za-z]{1,3}\d?)?)\b"""
+    )
+    private val leadingClassInSubjectRegex = Regex(
+        """^(\d+[A-Za-zżółćęśąźńŻÓŁĆĘŚĄŹŃ]{1,5}\d*-\d+/\d+)\s+(.+)$"""
     )
     private val brSplitRegex = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
     private val tagStripRegex = Regex("""<[^>]+>""")
@@ -227,6 +237,14 @@ object OptivumHtmlParser {
         )
     }
 
+    private enum class TagRole { NONE, SUBJECT, TEACHER, ROOM, CLASS }
+
+    private data class OpenTag(
+        val tagName: String,
+        val role: TagRole,
+        val href: String?
+    )
+
     private fun parseLessonCellSubgroups(cellHtml: String, ownerEntry: PlanEntry): List<LessonSubgroup> {
         val trimmed = cleanText(cellHtml)
         if (trimmed.isBlank() || trimmed == "-") return emptyList()
@@ -244,32 +262,161 @@ object OptivumHtmlParser {
             var roomHref: String? = null
             val classNames = mutableListOf<String>()
             var firstClassHref: String? = null
+            var extractedGroupLabel: String? = null
+            val untaggedParts = mutableListOf<String>()
 
-            for (tag in spanOrARegex.findAll(segment)) {
-                val attrs = tag.groupValues[2]
-                val inner = cleanText(tag.groupValues[3])
-                if (inner.isBlank()) continue
-                val classes = classAttrRegex.find(attrs)?.groupValues?.get(1)?.lowercase()?.split(" ") ?: emptyList()
-                val href = hrefAttrRegex.find(attrs)?.groupValues?.get(1)?.let(::normalizeHref)
+            val tagStack = ArrayDeque<OpenTag>()
+            var activeRole = TagRole.NONE
+            val roleBuffer = StringBuilder()
+            var activeHref: String? = null
+            var justClosedClass = false
 
-                when {
-                    "p" in classes -> subjectParts.add(inner)
-                    "n" in classes -> {
-                        teacherName = inner
-                        if (href != null) teacherHref = href
+            fun currentEffectiveTag(): OpenTag? = tagStack.lastOrNull { it.role != TagRole.NONE }
+
+            fun flushRoleBuffer() {
+                val text = cleanText(roleBuffer.toString())
+                roleBuffer.clear()
+                if (text.isBlank()) {
+                    activeHref = null
+                    return
+                }
+                when (activeRole) {
+                    TagRole.SUBJECT -> {
+                        subjectParts.add(text)
+                        justClosedClass = false
                     }
-                    "s" in classes -> {
-                        roomName = inner
-                        if (href != null) roomHref = href
+                    TagRole.TEACHER -> {
+                        teacherName = if (teacherName == null) text else "$teacherName, $text"
+                        if (activeHref != null && teacherHref == null) teacherHref = activeHref
+                        justClosedClass = false
                     }
-                    "o" in classes -> {
-                        classNames.add(inner)
-                        if (firstClassHref == null && href != null) firstClassHref = href
+                    TagRole.ROOM -> {
+                        roomName = text
+                        if (activeHref != null) roomHref = activeHref
+                        justClosedClass = false
+                    }
+                    TagRole.CLASS -> {
+                        classNames.add(text)
+                        if (firstClassHref == null && activeHref != null) firstClassHref = activeHref
+                        justClosedClass = true
+                    }
+                    TagRole.NONE -> Unit
+                }
+                activeHref = null
+            }
+
+            fun handlePlainChunk(rawChunk: String) {
+                if (rawChunk.isEmpty()) return
+                if (activeRole != TagRole.NONE) {
+                    roleBuffer.append(rawChunk)
+                    return
+                }
+                var remaining = rawChunk
+                if (justClosedClass && classNames.isNotEmpty()) {
+                    val suffixMatch = classGroupSuffixRegex.find(remaining)
+                    if (suffixMatch != null) {
+                        val suffixClean = cleanText(suffixMatch.groupValues[1])
+                        if (suffixClean.isNotBlank()) {
+                            val lastIdx = classNames.lastIndex
+                            val combined = if (suffixClean.startsWith("-") || suffixClean.startsWith("(")) {
+                                "${classNames[lastIdx]}$suffixClean"
+                            } else {
+                                "${classNames[lastIdx]}-$suffixClean"
+                            }
+                            classNames[lastIdx] = combined
+                            Regex("""(\d+/\d+)""").find(suffixClean)?.let {
+                                extractedGroupLabel = it.groupValues[1]
+                            }
+                        }
+                        remaining = remaining.substring(suffixMatch.range.last + 1)
+                    }
+                    justClosedClass = false
+                }
+
+                val cleanedRemaining = cleanText(remaining)
+                if (cleanedRemaining.isNotBlank() && cleanedRemaining != "," && cleanedRemaining != "-") {
+                    if (ownerEntry.category != PlanCategory.CLASS) {
+                        var leftover = cleanedRemaining
+                        val classTokens = untaggedClassTokenRegex.findAll(cleanedRemaining).map { it.groupValues[1] }.toList()
+                        if (classTokens.isNotEmpty() && subjectParts.isEmpty()) {
+                            classTokens.forEach { tok ->
+                                if (tok !in classNames) classNames.add(tok)
+                                Regex("""(\d+/\d+)""").find(tok)?.let {
+                                    extractedGroupLabel = it.groupValues[1]
+                                }
+                                leftover = leftover.replaceFirst(tok, "").trim().trim(',', ' ')
+                            }
+                        }
+                        if (leftover.isNotBlank() && leftover != "," && leftover != "-") {
+                            untaggedParts.add(leftover)
+                        }
+                    } else {
+                        untaggedParts.add(cleanedRemaining)
                     }
                 }
             }
 
-            // If a teacher plan doesn't link the teacher explicitly, fill owner as teacher
+            var cursor = 0
+            for (tagMatch in spanOrATagRegex.findAll(segment)) {
+                val matchStart = tagMatch.range.first
+                if (matchStart > cursor) {
+                    handlePlainChunk(segment.substring(cursor, matchStart))
+                }
+                cursor = tagMatch.range.last + 1
+
+                val isClosing = tagMatch.groupValues[1] == "/"
+                val tagName = tagMatch.groupValues[2].lowercase()
+                val attrs = tagMatch.groupValues[3]
+
+                if (!isClosing) {
+                    val classes = classAttrRegex.find(attrs)?.groupValues?.get(1)?.lowercase()
+                        ?.split(Regex("""\s+"""))
+                        ?.filter { it.isNotBlank() }
+                        ?: emptyList()
+                    val href = hrefAttrRegex.find(attrs)?.groupValues?.get(1)?.let(::normalizeHref)
+                    val filename = href?.substringAfterLast('/')?.lowercase().orEmpty()
+                    val role = when {
+                        "p" in classes -> TagRole.SUBJECT
+                        "n" in classes -> TagRole.TEACHER
+                        "s" in classes -> TagRole.ROOM
+                        "o" in classes -> TagRole.CLASS
+                        tagName == "a" && filename.startsWith("o") && filename.endsWith(".html") -> TagRole.CLASS
+                        tagName == "a" && filename.startsWith("n") && filename.endsWith(".html") -> TagRole.TEACHER
+                        tagName == "a" && filename.startsWith("s") && filename.endsWith(".html") -> TagRole.ROOM
+                        else -> TagRole.NONE
+                    }
+
+                    if (role != TagRole.NONE && activeRole != role) {
+                        flushRoleBuffer()
+                        activeRole = role
+                        activeHref = href
+                    } else if (role != TagRole.NONE && activeHref == null && href != null) {
+                        activeHref = href
+                    }
+                    tagStack.addLast(OpenTag(tagName, role, href))
+                } else {
+                    val idxToRemove = tagStack.indexOfLast { it.tagName == tagName }
+                    if (idxToRemove >= 0) {
+                        val removed = tagStack.removeAt(idxToRemove)
+                        val newEffective = currentEffectiveTag()
+                        val newRole = newEffective?.role ?: TagRole.NONE
+                        if (removed.role != TagRole.NONE && newRole != activeRole) {
+                            flushRoleBuffer()
+                            activeRole = newRole
+                            activeHref = newEffective?.href
+                        }
+                    }
+                }
+            }
+
+            if (cursor < segment.length) {
+                handlePlainChunk(segment.substring(cursor))
+            }
+            if (activeRole != TagRole.NONE) {
+                flushRoleBuffer()
+            }
+
+            // Fill owner metadata when viewing teacher/room/class plan
             if (ownerEntry.category == PlanCategory.TEACHER && teacherName == null) {
                 teacherName = ownerEntry.name
                 teacherHref = ownerEntry.href
@@ -283,16 +430,33 @@ object OptivumHtmlParser {
                 firstClassHref = ownerEntry.href
             }
 
-            val subjectRaw = if (subjectParts.isNotEmpty()) {
-                subjectParts.joinToString(" ")
-            } else {
-                // Fallback: strip matched tokens or raw text
-                cleanText(segment)
+            var subjectRaw = when {
+                subjectParts.isNotEmpty() -> subjectParts.joinToString(" ")
+                untaggedParts.isNotEmpty() -> untaggedParts.joinToString(" ")
+                else -> cleanText(segment)
             }
 
-            // Extract optional group suffix like "-1/2" or "(gr. 1)"
-            val groupMatch = Regex("""-(\d+/\d+)$""").find(subjectRaw)
-            val groupLabel = groupMatch?.groupValues?.get(1)
+            if (ownerEntry.category != PlanCategory.CLASS && classNames.isEmpty()) {
+                val leadingMatch = leadingClassInSubjectRegex.find(subjectRaw)
+                if (leadingMatch != null) {
+                    classNames.add(leadingMatch.groupValues[1])
+                    subjectRaw = leadingMatch.groupValues[2].trim()
+                }
+            }
+
+            // If a teacher/room plan put "-1/2" on the subject instead of the class, move it to the class badge
+            val subjectGroupMatch = Regex("""-(\d+/\d+)$""").find(subjectRaw)
+            if (subjectGroupMatch != null) {
+                val grp = subjectGroupMatch.groupValues[1]
+                if (extractedGroupLabel == null) extractedGroupLabel = grp
+                if (ownerEntry.category != PlanCategory.CLASS &&
+                    classNames.size == 1 &&
+                    !classNames[0].contains("/")
+                ) {
+                    classNames[0] = "${classNames[0]}-$grp"
+                    subjectRaw = subjectRaw.removeSuffix("-$grp").trim()
+                }
+            }
 
             if (subjectRaw.isNotBlank()) {
                 parsed.add(
@@ -304,7 +468,7 @@ object OptivumHtmlParser {
                         roomHref = roomHref,
                         className = classNames.takeIf { it.isNotEmpty() }?.joinToString(", "),
                         classHref = firstClassHref,
-                        groupLabel = groupLabel
+                        groupLabel = extractedGroupLabel
                     )
                 )
             }

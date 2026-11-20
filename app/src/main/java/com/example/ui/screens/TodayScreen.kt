@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -779,6 +781,7 @@ private fun LiveLessonStatusCard(
                             text = listOfNotNull(
                                 sg?.roomName?.let { "Sala $it" },
                                 sg?.teacherName,
+                                sg?.className?.let { "Klasa $it" },
                                 nextLesson.timeRange
                             ).joinToString(" • "),
                             style = MaterialTheme.typography.bodyMedium,
@@ -824,6 +827,7 @@ private fun LiveLessonStatusCard(
                             text = listOfNotNull(
                                 sg?.roomName?.let { "Sala $it" },
                                 sg?.teacherName,
+                                sg?.className?.let { "Klasa $it" },
                                 nextLesson.timeRange
                             ).joinToString(" • "),
                             style = MaterialTheme.typography.bodyMedium,
@@ -849,6 +853,7 @@ private fun LiveLessonStatusCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LessonRowCard(
     cell: LessonCell,
@@ -923,9 +928,9 @@ fun LessonRowCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(6.dp))
-                        Row(
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             sg.roomName?.let { room ->
                                 val href = sg.roomHref
