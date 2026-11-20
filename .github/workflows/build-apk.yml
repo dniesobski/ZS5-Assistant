@@ -42,7 +42,7 @@ jobs:
 
           # Buduje podpisaną wersję produkcyjną (Release)
           gradle assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/ZSMEAssist.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/ZS5Assist.apk"
 
       - name: Publikacja najnowszego APK w GitHub Releases
         uses: softprops/action-gh-release@v2
