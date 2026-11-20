@@ -38,7 +38,7 @@ jobs:
           cd "$PROJECT_DIR"
 
           # Odtwarza Twój plik klucza .jks w głównym folderze projektu
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > klucz_zsme.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > key.jks
 
           # Buduje podpisaną wersję produkcyjną (Release)
           gradle assembleRelease
