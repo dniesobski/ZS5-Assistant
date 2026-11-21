@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.PersonSearch
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material.icons.rounded.Weekend
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,6 +60,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
@@ -99,15 +101,18 @@ fun TodayScreen(
 
     val countdown = uiState.holidayCountdown
     val pinnedPlan = uiState.pinnedPlan
-    val todayDow = uiState.todayDayOfWeek.coerceIn(1, 5)
-    val todayLessons = pinnedPlan?.lessons
-        ?.filter { it.dayOfWeek == todayDow }
-        ?.sortedBy { it.lessonNumber }
-        .orEmpty()
-
     val isSchoolDayToday = uiState.todayDayOfWeek in 1..5 &&
         countdown.todayFreeEvent == null &&
         !countdown.isCurrentlySummerBreak
+
+    val todayLessons = if (isSchoolDayToday) {
+        pinnedPlan?.lessons
+            ?.filter { it.dayOfWeek == uiState.todayDayOfWeek }
+            ?.sortedBy { it.lessonNumber }
+            .orEmpty()
+    } else {
+        emptyList()
+    }
 
     val currentLesson = if (isSchoolDayToday) {
         todayLessons.firstOrNull {
@@ -519,25 +524,89 @@ fun TodayScreen(
 
         // Today's Schedule Header
         item {
-            val dayLabel = when (todayDow) {
+            val dayLabel = when (uiState.todayDayOfWeek) {
                 1 -> "Poniedziałek"
                 2 -> "Wtorek"
                 3 -> "Środa"
                 4 -> "Czwartek"
-                else -> "Piątek"
+                5 -> "Piątek"
+                6 -> "Sobota"
+                else -> "Niedziela"
             }
             Text(
-                text = if (uiState.todayDayOfWeek in 1..5) {
-                    "Dzisiejsze lekcje ($dayLabel)"
-                } else {
-                    "Podgląd planu (Poniedziałek)"
-                },
+                text = "Dzisiejsze lekcje ($dayLabel)",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
 
-        if (todayLessons.isEmpty()) {
+        if (!isSchoolDayToday) {
+            item {
+                val (freeIcon, freeTitle, freeSubtitle) = when {
+                    countdown.isCurrentlySummerBreak -> Triple(
+                        Icons.Rounded.BeachAccess,
+                        "Brak lekcji — trwają wakacje!",
+                        "W czasie przerwy wakacyjnej zajęcia szkolne nie odbywają się."
+                    )
+                    countdown.isWeekend || uiState.todayDayOfWeek !in 1..5 -> Triple(
+                        Icons.Rounded.Weekend,
+                        "Brak lekcji — mamy weekend!",
+                        countdown.todayFreeEvent?.let {
+                            "W sobotę i niedzielę zajęcia się nie odbywają (${it.name})."
+                        } ?: "W sobotę i niedzielę zajęcia się nie odbywają. Udanego odpoczynku!"
+                    )
+                    else -> Triple(
+                        Icons.Rounded.EventAvailable,
+                        "Brak lekcji — dzień wolny!",
+                        countdown.todayFreeEvent?.name?.let {
+                            "Dzisiaj nie ma zajęć lekcyjnych ($it)."
+                        } ?: "Dzisiaj nie ma zajęć lekcyjnych."
+                    )
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("today_free_day_card")
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = freeIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(42.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = freeTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = freeSubtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        FilledTonalButton(
+                            onClick = onOpenPlansTab,
+                            modifier = Modifier.testTag("free_day_open_plans_btn")
+                        ) {
+                            Text("Przejrzyj plan na tydzień")
+                        }
+                    }
+                }
+            }
+        } else if (todayLessons.isEmpty()) {
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
